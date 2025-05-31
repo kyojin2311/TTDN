@@ -10,18 +10,26 @@ import { useSnackbar } from "notistack";
 import Loading from "@/components/Loading";
 import Image from "next/image";
 import ThemeSettingsModal from "@/components/ThemeSettingsModal";
+import { Input } from "@/components/ui/input";
+import TicketFilterPopover from "@/components/TicketFilterPopover";
 
 const initialColumns: Record<TodoStatus, Todo[]> = {
+  NEED_FIXED: [],
   DOING: [],
   DEMO: [],
   WAITING_REVIEW: [],
-  NEED_FIXED: [],
 };
 
 export default function Home() {
   const { user, loading, signInWithGoogle, logout } = useAuthContext();
   const [columns, setColumns] = useState(initialColumns);
   const { enqueueSnackbar } = useSnackbar();
+  const [search, setSearch] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [createdAtRange, setCreatedAtRange] = useState<{
+    from: string;
+    to: string;
+  }>({ from: "", to: "" });
 
   if (loading) {
     return <Loading />;
@@ -60,9 +68,9 @@ export default function Home() {
               </div>
             </div>
             <div className="relative">
-              <div className="absolute -top-4 -left-4 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
-              <div className="absolute -bottom-8 right-4 w-72 h-72 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
+              <div className="absolute -top-4 -left-4 w-72 h-72 bg-primary/20 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
+              <div className="absolute -bottom-8 right-4 w-72 h-72 bg-secondary/20 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-72 h-72 bg-accent/20 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
               <div className="relative">
                 <Image
                   src="/dashboard-preview.svg"
@@ -75,10 +83,10 @@ export default function Home() {
             </div>
           </div>
           <div className="mt-24 grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="p-6 bg-white rounded-xl shadow-sm">
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
+            <div className="p-6 bg-card rounded-xl shadow-sm">
+              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
                 <svg
-                  className="w-6 h-6 text-blue-600"
+                  className="w-6 h-6 text-primary"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -98,10 +106,10 @@ export default function Home() {
                 Organize your tasks with our intuitive drag-and-drop interface.
               </p>
             </div>
-            <div className="p-6 bg-white rounded-xl shadow-sm">
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
+            <div className="p-6 bg-card rounded-xl shadow-sm">
+              <div className="w-12 h-12 bg-secondary/10 rounded-lg flex items-center justify-center mb-4">
                 <svg
-                  className="w-6 h-6 text-green-600"
+                  className="w-6 h-6 text-secondary"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -120,10 +128,10 @@ export default function Home() {
                 security.
               </p>
             </div>
-            <div className="p-6 bg-white rounded-xl shadow-sm">
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
+            <div className="p-6 bg-card rounded-xl shadow-sm">
+              <div className="w-12 h-12 bg-accent/10 rounded-lg flex items-center justify-center mb-4">
                 <svg
-                  className="w-6 h-6 text-purple-600"
+                  className="w-6 h-6 text-accent"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -179,9 +187,22 @@ export default function Home() {
     }
   };
 
+  function filterTodos(todos: Todo[]) {
+    return todos.filter((todo) => {
+      const desc = (todo.description || "").toLowerCase();
+      const matchSearch = search === "" || desc.includes(search.toLowerCase());
+      const matchDate =
+        (!createdAtRange.from ||
+          new Date(todo.createdAt) >= new Date(createdAtRange.from)) &&
+        (!createdAtRange.to ||
+          new Date(todo.createdAt) <= new Date(createdAtRange.to));
+      return matchSearch && matchDate;
+    });
+  }
+
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="w-full px-2 py-8">
+    <main className="min-h-screen h-full flex flex-col bg-background">
+      <div className="w-full px-2 py-8 flex-1 flex flex-col">
         <div className="flex justify-between items-center mb-8">
           <div className="flex items-center space-x-4">
             <Image
@@ -191,7 +212,7 @@ export default function Home() {
               height={40}
               className="rounded-lg"
             />
-            <h1 className="text-3xl font-bold text-gray-900">My Todo List</h1>
+            <h1 className="text-3xl font-bold text-foreground">My Todo List</h1>
           </div>
           <div className="flex items-center space-x-4">
             <Button
@@ -212,22 +233,42 @@ export default function Home() {
           </div>
         </div>
 
-        <DragDropContext onDragEnd={onDragEnd}>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <TodoColumn id="DOING" title="Doing" todos={columns.DOING} />
-            <TodoColumn id="DEMO" title="Demo" todos={columns.DEMO} />
-            <TodoColumn
-              id="WAITING_REVIEW"
-              title="Waiting Review"
-              todos={columns.WAITING_REVIEW}
-            />
-            <TodoColumn
-              id="NEED_FIXED"
-              title="Need Fixed"
-              todos={columns.NEED_FIXED}
-            />
-          </div>
-        </DragDropContext>
+        <div className="flex flex-col md:flex-row gap-4 mb-6 items-center">
+          <Input
+            placeholder="Search ticket"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full md:w-1/3"
+          />
+          <TicketFilterPopover
+            open={filterOpen}
+            setOpen={setFilterOpen}
+            createdAtRange={createdAtRange}
+            setCreatedAtRange={setCreatedAtRange}
+          />
+        </div>
+
+        <div className="flex-1 min-h-0 flex flex-col">
+          <DragDropContext onDragEnd={onDragEnd}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-full min-h-0 flex-1 items-stretch">
+              <TodoColumn
+                id="NEED_FIXED"
+                title="To Do"
+                todos={filterTodos(columns.NEED_FIXED)}
+              />
+              <TodoColumn
+                id="DOING"
+                title="Doing"
+                todos={filterTodos(columns.DOING)}
+              />
+              <TodoColumn
+                id="DEMO"
+                title="Done"
+                todos={filterTodos(columns.DEMO)}
+              />
+            </div>
+          </DragDropContext>
+        </div>
       </div>
     </main>
   );

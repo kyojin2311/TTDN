@@ -32,6 +32,7 @@ import {
   PopoverTrigger,
   PopoverContent,
 } from "@/components/ui/popover";
+import LabelSelector from "./LabelSelector";
 
 interface TodoSheetProps {
   status: string;
@@ -39,12 +40,6 @@ interface TodoSheetProps {
   open?: boolean;
   setOpen?: (open: boolean) => void;
 }
-
-const typeOptions = [
-  { value: "bug", label: "Bug" },
-  { value: "feature", label: "Feature" },
-  { value: "improvement", label: "Improvement" },
-];
 
 const statusOptions = [
   { value: "DOING", label: "Doing" },
@@ -64,11 +59,7 @@ export default function TodoSheet({
   const setOpen =
     controlledSetOpen !== undefined ? controlledSetOpen : setUncontrolledOpen;
   const [deadline, setDeadline] = useState("");
-  const [type, setType] = useState(typeOptions[0].value);
   const [currentStatus, setCurrentStatus] = useState(status);
-  const [files, setFiles] = useState<File[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [dragActive, setDragActive] = useState(false);
   const { rem } = useThemeContext();
 
   // Popover state for link editing
@@ -138,44 +129,6 @@ export default function TodoSheet({
     }
     setLinkPopoverOpen(false);
   };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    const selected = Array.from(e.target.files);
-    if (files.length + selected.length > 5) {
-      alert("You can only upload up to 5 files.");
-      return;
-    }
-    setFiles([...files, ...selected].slice(0, 5));
-  };
-
-  const handleRemoveFile = (idx: number) => {
-    setFiles(files.filter((_, i) => i !== idx));
-  };
-
-  // Drag & drop handlers
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragActive(true);
-  }, []);
-  const handleDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragActive(false);
-  }, []);
-  const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setDragActive(false);
-      if (!e.dataTransfer.files) return;
-      const dropped = Array.from(e.dataTransfer.files);
-      if (files.length + dropped.length > 5) {
-        alert("You can only upload up to 5 files.");
-        return;
-      }
-      setFiles([...files, ...dropped].slice(0, 5));
-    },
-    [files]
-  );
 
   // Toolbar actions for Tiptap
   const toolbarActions = [
@@ -280,32 +233,18 @@ export default function TodoSheet({
               />
             </div>
             <div style={{ marginBottom: `calc(${rem} * 1.5)` }}>
-              <Label
-                htmlFor="type"
-                style={{ marginBottom: `calc(${rem} * 0.5)` }}
-              >
-                Type
+              <Label style={{ marginBottom: `calc(${rem} * 0.5)` }}>
+                Labels
               </Label>
-              <Select value={type} onValueChange={setType}>
-                <SelectTrigger id="type" className="w-full">
-                  <SelectValue placeholder="Select type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {typeOptions.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <LabelSelector />
             </div>
             <div style={{ marginBottom: `calc(${rem} * 1.5)` }}>
               <Label style={{ marginBottom: `calc(${rem} * 0.5)` }}>
                 Description
               </Label>
-              <div className="border rounded min-h-[220px] bg-white focus-within:ring-2 focus-within:ring-blue-500 relative">
+              <div className="border rounded min-h-[320px] bg-white focus-within:ring-2 focus-within:ring-blue-500 relative">
                 {/* Toolbar */}
-                <div className="flex items-center gap-2 border-b px-2 py-1 bg-gray-50 rounded-t">
+                <div className="flex items-center gap-2 border-b px-4 py-2 bg-gray-50 rounded-t">
                   {toolbarActions.map((item, idx) => (
                     <Button
                       key={idx}
@@ -319,7 +258,7 @@ export default function TodoSheet({
                       size="icon"
                       className={`${
                         item.isActive ? "text-primary" : "text-muted-foreground"
-                      } size-4`}
+                      } size-5`}
                       onClick={item.action}
                       title={item.label}
                       tabIndex={-1}
@@ -370,7 +309,7 @@ export default function TodoSheet({
                     </PopoverContent>
                   </Popover>
                 </div>
-                <div className="p-3 min-h-[160px]" ref={editorContentRef}>
+                <div className="p-5 min-h-[240px]" ref={editorContentRef}>
                   {editor && (
                     <EditorContent editor={editor} className="tiptap" />
                   )}
@@ -380,86 +319,6 @@ export default function TodoSheet({
                 <span className="mr-2">Ctrl+B: Bold</span>
                 <span className="mr-2">Ctrl+K: Link</span>
                 <span>Ctrl+I: Italic</span>
-              </div>
-            </div>
-            <div style={{ marginBottom: `calc(${rem} * 1.5)` }}>
-              <Label
-                style={{ marginBottom: `calc(${rem} * 0.5)`, display: "block" }}
-              >
-                Attachments (max 5)
-              </Label>
-              <div
-                className={`border-2 border-dashed rounded-lg p-4 bg-gray-50 flex flex-col items-center justify-center transition-colors ${
-                  dragActive ? "border-blue-400 bg-blue-50" : "border-gray-200"
-                }`}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                style={{ cursor: files.length < 5 ? "pointer" : "not-allowed" }}
-              >
-                <Input
-                  type="file"
-                  multiple
-                  accept="image/*,video/*"
-                  ref={fileInputRef}
-                  onChange={(e) => handleFileChange(e)}
-                  className="hidden"
-                  disabled={files.length >= 5}
-                />
-                <div className="flex flex-col items-center gap-2">
-                  <span className="text-2xl text-blue-400">📎</span>
-                  <span className="text-gray-500 text-sm">
-                    Kéo thả file vào đây hoặc{" "}
-                    <span className="underline">chọn file</span>
-                  </span>
-                  <span className="text-xs text-gray-400">
-                    Tối đa 5 file, hỗ trợ ảnh & video
-                  </span>
-                </div>
-                {files.length > 0 && (
-                  <div className="flex flex-wrap gap-3 mt-4 w-full justify-center">
-                    {files.map((file, idx) => {
-                      const url = URL.createObjectURL(file);
-                      const isImage = file.type.startsWith("image/");
-                      const isVideo = file.type.startsWith("video/");
-                      return (
-                        <div
-                          key={idx}
-                          className="relative w-24 h-24 border rounded-lg overflow-hidden shadow-sm group bg-white"
-                        >
-                          {isImage && (
-                            <img
-                              src={url}
-                              alt={file.name}
-                              className="object-cover w-full h-full"
-                            />
-                          )}
-                          {isVideo && (
-                            <video
-                              src={url}
-                              className="object-cover w-full h-full"
-                              controls
-                            />
-                          )}
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="secondary"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRemoveFile(idx);
-                            }}
-                            className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center text-xs font-bold shadow group-hover:scale-110 transition-transform"
-                            title="Xoá file"
-                          >
-                            ×
-                          </Button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             </div>
           </div>
