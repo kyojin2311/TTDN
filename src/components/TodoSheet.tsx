@@ -82,6 +82,7 @@ export default function TodoSheet({
       Placeholder.configure({ placeholder: "Write something..." }),
     ],
     content: "",
+    immediatelyRender: false,
     editorProps: {
       attributes: {
         class: "min-h-[160px] outline-none focus:outline-none bg-transparent",

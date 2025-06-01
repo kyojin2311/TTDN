@@ -1,24 +1,75 @@
 "use client";
 
-import { createContext, useContext, ReactNode } from "react";
-import { useAuth } from "@/hooks/useAuth";
-import { User } from "firebase/auth";
+import {
+  createContext,
+  useContext,
+  ReactNode,
+  useCallback,
+  useState,
+  useEffect,
+} from "react";
+import {
+  GoogleAuthProvider,
+  signInWithPopup,
+  User,
+  UserCredential,
+} from "firebase/auth";
+import { useRouter } from "next/navigation";
+import { auth } from "@/lib/firebase/config";
 
 interface AuthContextType {
-  user: User | null;
+  user: User | undefined;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<User>;
-  signUp: (email: string, password: string) => Promise<User>;
-  signInWithGoogle: () => Promise<User>;
+  isAuthenticated: boolean;
+  login?: () => Promise<UserCredential>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const auth = useAuth();
+  const [user, setUser] = useState<User | undefined>(undefined);
+  const [isLoading, setLoading] = useState(true);
+  const [isAuthenticated, setAuthenticated] = useState(false);
+  const router = useRouter();
 
-  return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
+  useEffect(() => {
+    setLoading(true);
+    auth.onAuthStateChanged(function handleAuth(user) {
+      if (user) {
+        setUser(user);
+        setAuthenticated(true);
+        router.push("/home");
+      } else {
+        setUser(undefined);
+        setAuthenticated(false);
+        router.push("/");
+      }
+      setLoading(false);
+    });
+  }, [router]);
+
+  const login = useCallback(async () => {
+    const provider = new GoogleAuthProvider();
+    const data = await signInWithPopup(auth, provider);
+
+    router.push("/home");
+
+    return data;
+  }, [router]);
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user: user,
+        loading: isLoading,
+        isAuthenticated: isAuthenticated,
+        logout: () => Promise.resolve(),
+        login,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuthContext() {

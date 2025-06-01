@@ -1,108 +1,262 @@
+import { getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { useQuery, UseQueryOptions, QueryKey } from "@tanstack/react-query";
-import { useSnackbar } from "notistack";
+import { enqueueSnackbar } from "notistack";
+import { ApiRequestScheduler } from "./apiScheduler";
 
-export async function fetchWithAuth(url: string, options: RequestInit = {}) {
-  const auth = getAuth();
-  const token = await auth.currentUser?.getIdToken();
-  const headers = {
-    ...(options.headers || {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    "Content-Type": "application/json",
+/* eslint-disable @typescript-eslint/no-namespace */
+
+export const scheduler = new ApiRequestScheduler(5, 300);
+
+export namespace ApiUtils {
+  const autoHideDuration = 3000;
+  export const METHOD = {
+    GET: "GET",
+    POST: "POST",
+    PUT: "PUT",
+    DELETE: "DELETE",
+    PATCH: "PATCH",
+  } as const;
+
+  export const HOST = process.env.NEXT_PUBLIC_BE_HOST;
+
+  export async function getToken() {
+    return getAuth(getApp()).currentUser?.getIdToken();
+  }
+
+  export function getRefreshToken() {
+    return getAuth(getApp()).currentUser?.refreshToken;
+  }
+
+  export type ApiResponse<T> = T & {
+    message?: string;
+    error?: string;
+    statusCode?: number;
   };
-  const res = await fetch(url, { ...options, headers });
-  if (!res.ok) {
-    const error = await res.text();
-    throw new Error(error || res.statusText);
-  }
-  return res.json();
-}
 
-export function get(url: string) {
-  return fetchWithAuth(url, { method: "GET" });
-}
+  export type ApiRequest = {
+    url: string;
+    method: string;
+    body?: Record<string, unknown>;
+    params?: Record<string, unknown>;
+    isEmpty?: boolean;
+    isShowError?: boolean;
+    isUnusedToken?: boolean;
+  };
 
-export function post<T = unknown>(url: string, data: T) {
-  return fetchWithAuth(url, { method: "POST", body: JSON.stringify(data) });
-}
+  type FetchListConfig = {
+    functionName: string;
+    url: string;
+    method: string;
+    hasSuccessfulMsg?: boolean;
+    hasErrorMsg?: boolean;
+    body?: Record<string, unknown>;
+    params?: Record<string, unknown>;
+    isShowError?: boolean;
+    isReturnError?: boolean;
+  };
 
-export function put<T = unknown>(url: string, data: T) {
-  return fetchWithAuth(url, { method: "PUT", body: JSON.stringify(data) });
-}
+  type FetchOneConfig = {
+    functionName: string;
+    url: string;
+    method: string;
+    hasSuccessfulMsg?: boolean;
+    hasErrorMsg?: boolean;
+    body?: Record<string, unknown>;
+    params?: Record<string, unknown>;
+    isEmpty?: boolean;
+    isShowError?: boolean;
+    isReturnError?: boolean;
+  };
 
-export function del(url: string) {
-  return fetchWithAuth(url, { method: "DELETE" });
-}
+  export async function fetchData<T>(
+    config: ApiRequest,
+    signal?: AbortSignal
+  ): Promise<T> {
+    console.log("fetchData");
+    const token = await ApiUtils.getToken();
+    console.log("fetchData1", token, config.url);
+    const url = new URL(config.url);
+    console.log("fetchData1,5", url);
 
-/**
- * useApiQuery - custom hook dùng react-query để fetch API có auth (Firebase token)
- * @param key QueryKey (unique key cho react-query)
- * @param url endpoint
- * @param method HTTP method (bắt buộc, ví dụ: 'GET', 'POST', ...)
- * @param queryOptions: { body, params, notifyOnError, notifyOnSuccess }
- * @param options react-query options (enabled, staleTime, ...)
- * @returns { data, error, isLoading, refetch, ... }
- *
- * Example:
- *   const { data, isLoading, error } = useApiQuery(['todos'], '/api/todos', 'GET', { params: { status: 'done' }, notifyOnError: true });
- */
-export interface ApiQueryOptions<
-  B = unknown,
-  P = Record<string, string | number | boolean | undefined>
-> {
-  body?: B;
-  params?: P;
-  notifyOnError?: boolean;
-  notifyOnSuccess?: boolean;
-}
-
-export function useApiQuery<
-  T = unknown,
-  B = unknown,
-  P = Record<string, string | number | boolean | undefined>
->(
-  key: QueryKey,
-  url: string,
-  method: string,
-  queryOptions?: ApiQueryOptions<B, P>,
-  options?: UseQueryOptions<T>
-) {
-  const { enqueueSnackbar } = useSnackbar();
-  // Xử lý params
-  let finalUrl = url;
-  if (queryOptions?.params) {
-    const params = Object.entries(queryOptions.params)
-      .filter(([, v]) => v !== undefined && v !== null && v !== "")
-      .map(
-        ([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`
-      )
-      .join("&");
-    if (params) finalUrl += (finalUrl.includes("?") ? "&" : "?") + params;
-  }
-  return useQuery<T>({
-    queryKey: key,
-    queryFn: async () => {
-      try {
-        const res = await fetchWithAuth(finalUrl, {
-          method,
-          body: queryOptions?.body
-            ? JSON.stringify(queryOptions.body)
-            : undefined,
-        });
-        if (queryOptions?.notifyOnSuccess) {
-          enqueueSnackbar("Fetch thành công!", { variant: "success" });
+    if (config.params) {
+      Object.entries(config.params).forEach((entry) => {
+        if (Array.isArray(entry[1])) {
+          entry[1].forEach((value) => {
+            if (value !== undefined && value !== null)
+              url.searchParams.append(entry[0], value.toString());
+          });
+        } else {
+          if (entry[1] !== undefined && entry[1] !== null)
+            url.searchParams.append(entry[0], entry[1].toString());
         }
-        return res;
-      } catch (err) {
-        if (queryOptions?.notifyOnError) {
+      });
+    }
+    console.log("fetchData2", url);
+
+    const myHeaders = new Headers();
+    myHeaders.append("Authorization", `Bearer ${token}`);
+    myHeaders.append("Content-Type", "application/json");
+    myHeaders.append("ngrok-skip-browser-warning", "69420");
+
+    const requestOptions: RequestInit = {
+      method: config.method,
+      mode: "cors",
+      body: JSON.stringify(config.body),
+      headers: myHeaders,
+      signal,
+    };
+    console.log("fetchData31", requestOptions);
+
+    try {
+      const response = await fetch(url, requestOptions);
+      console.log("fetchData32", response);
+      if (!response.ok) {
+        const responseData = await response.json();
+        const errorObj = {
+          ...responseData,
+          error: responseData.error || "Error",
+          statusCode: response.status,
+          statusText: response.statusText,
+        };
+
+        if (config.isShowError) {
+          return errorObj as T;
+        }
+
+        throw new Error(JSON.stringify(errorObj));
+      }
+      const body = config.isEmpty ? response : await response.json();
+      return body as T;
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("{")) {
+        throw error;
+      }
+      const errorObj = {
+        error: (error as Error)?.message || "Unknown error",
+        statusCode: 500,
+        statusText: "Request Failed",
+      };
+      throw new Error(JSON.stringify(errorObj));
+    }
+  }
+
+  export async function fetchOne<T>(
+    config: FetchOneConfig,
+    signal?: AbortSignal
+  ): Promise<T> {
+    try {
+      const result = await fetchData<ApiResponse<T>>(config, signal);
+      const { hasSuccessfulMsg } = config;
+
+      if (hasSuccessfulMsg && !result?.error) {
+        enqueueSnackbar(`${config.functionName} successfully.`, {
+          variant: "success",
+          autoHideDuration: autoHideDuration,
+        });
+      }
+      return result;
+    } catch (error) {
+      const { hasErrorMsg, functionName, isReturnError } = config;
+
+      try {
+        const errorData = JSON.parse((error as Error).message);
+
+        if (hasErrorMsg) {
           enqueueSnackbar(
-            (err as Error).message || "Có lỗi xảy ra khi fetch API",
-            { variant: "error" }
+            `${functionName} failed${
+              errorData.message ? `: ${errorData.message}` : ""
+            }`,
+            {
+              variant: "error",
+              autoHideDuration: autoHideDuration,
+            }
           );
         }
-        throw err;
+
+        if (isReturnError) return errorData as unknown as T;
+
+        throw error;
+      } catch {
+        if (hasErrorMsg) {
+          enqueueSnackbar(
+            `${functionName} failed: ${(error as Error).message}`,
+            {
+              variant: "error",
+              autoHideDuration: autoHideDuration,
+            }
+          );
+        }
+
+        if (isReturnError)
+          return {
+            error: (error as Error).message,
+            statusCode: 500,
+          } as unknown as T;
+
+        throw error;
       }
-    },
-    ...options,
-  });
+    }
+  }
+
+  export async function fetchList<T>(
+    config: FetchListConfig,
+    signal?: AbortSignal
+  ): Promise<T[]> {
+    try {
+      console.log("fetchList");
+      const result = await fetchData<ApiResponse<T[]>>(config, signal);
+      const { hasSuccessfulMsg } = config;
+
+      console.log("fetchList1", result);
+      if (hasSuccessfulMsg && !result?.error) {
+        enqueueSnackbar(`${config.functionName} successfully.`, {
+          variant: "success",
+          autoHideDuration: autoHideDuration,
+        });
+      }
+
+      if (!Array.isArray(result)) return [] as T[];
+      return result as T[];
+    } catch (error) {
+      const { hasErrorMsg, functionName, isReturnError } = config;
+
+      try {
+        const errorData = JSON.parse((error as Error).message);
+
+        if (hasErrorMsg) {
+          enqueueSnackbar(
+            `${functionName} failed${
+              errorData.message ? `: ${errorData.message}` : ""
+            }`,
+            {
+              variant: "error",
+              autoHideDuration: autoHideDuration,
+            }
+          );
+        }
+
+        if (isReturnError) return errorData as unknown as T[];
+
+        throw error;
+      } catch {
+        if (hasErrorMsg) {
+          enqueueSnackbar(
+            `${functionName} failed: ${(error as Error).message}`,
+            {
+              variant: "error",
+              autoHideDuration: autoHideDuration,
+            }
+          );
+        }
+
+        if (isReturnError)
+          return {
+            error: (error as Error).message,
+            statusCode: 500,
+          } as unknown as T[];
+
+        throw error;
+      }
+    }
+  }
 }
