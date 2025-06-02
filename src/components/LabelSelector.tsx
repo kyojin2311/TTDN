@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Popover,
   PopoverTrigger,
@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Pencil } from "lucide-react";
+import { useLabelContext } from "@/lib/context/LabelContext";
 
 const DEFAULT_COLORS = [
   "#4ade80", // green
@@ -23,50 +24,68 @@ function randomColor() {
   return DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)];
 }
 
-export default function LabelSelector() {
-  const [labels, setLabels] = useState([
-    { id: 1, name: "Resources & Docs", color: "#60a5fa" },
-    { id: 2, name: "Bug", color: "#f87171" },
-    { id: 3, name: "Feature", color: "#4ade80" },
-    { id: 4, name: "Improvement", color: "#facc15" },
-  ]);
-  const [selected, setSelected] = useState([1]);
+export default function LabelSelector({
+  value,
+  onChange,
+}: {
+  value?: string[];
+  onChange?: (ids: string[]) => void;
+}) {
+  const { labels, createLabel, updateLabel, deleteLabel, mutate } =
+    useLabelContext();
+  const [selected, setSelected] = useState<string[]>(value || []);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const [editId, setEditId] = useState<number | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState({ name: "", color: randomColor() });
+
+  useEffect(() => {
+    if (
+      value &&
+      (value.length !== selected.length ||
+        value.some((v, i) => v !== selected[i]))
+    ) {
+      setSelected(value);
+    }
+  }, [value]);
+
+  useEffect(() => {
+    if (onChange) onChange(selected);
+  }, [selected]);
 
   const filtered = labels.filter((l) =>
     l.name.toLowerCase().includes(search.toLowerCase())
   );
 
-  function handleToggle(id: number) {
+  async function handleToggle(id: string) {
     setSelected((sel) =>
       sel.includes(id) ? sel.filter((i) => i !== id) : [...sel, id]
     );
   }
-  function handleCreate() {
+  async function handleCreate() {
     if (!newLabel.name.trim()) return;
-    const id = Date.now();
-    setLabels((labs) => [...labs, { id, ...newLabel }]);
-    setSelected((sel) => [...sel, id]);
+    await createLabel(newLabel);
     setNewLabel({ name: "", color: randomColor() });
     setShowCreate(false);
+    mutate();
   }
-  function handleEdit() {
-    setLabels((labs) =>
-      labs.map((l) => (l.id === editId ? { ...l, ...newLabel } : l))
-    );
+  async function handleEdit() {
+    if (!editId) return;
+    await updateLabel(editId, newLabel);
     setEditId(null);
     setNewLabel({ name: "", color: randomColor() });
     setShowCreate(false);
+    mutate();
   }
-  function handleDelete(id: number) {
-    setLabels((labs) => labs.filter((l) => l.id !== id));
+  async function handleDelete(id?: string) {
+    if (!id) return;
+    await deleteLabel(id);
     setSelected((sel) => sel.filter((i) => i !== id));
+    mutate();
   }
-  function openEdit(label: { id: number; name: string; color: string }) {
-    setEditId(label.id);
+  function openEdit(label: { _id?: string; name: string; color: string }) {
+    if (!label._id) return;
+    setEditId(label._id);
     setNewLabel({ name: label.name, color: label.color });
     setShowCreate(true);
   }
@@ -80,7 +99,7 @@ export default function LabelSelector() {
         >
           {selected.length === 0 && <span>Select labels...</span>}
           {selected.map((id) => {
-            const l = labels.find((l) => l.id === id);
+            const l = labels.find((l) => l._id === id);
             if (!l) return null;
             return (
               <span
@@ -115,39 +134,41 @@ export default function LabelSelector() {
                 className="mb-2"
               />
               <div className="max-h-48 overflow-y-auto space-y-1">
-                {filtered.map((label) => (
-                  <div
-                    key={label.id}
-                    className="flex items-center gap-2 py-1 px-1 rounded hover:bg-accent/20 group"
-                  >
-                    <Checkbox
-                      checked={selected.includes(label.id)}
-                      onCheckedChange={() => handleToggle(label.id)}
-                    />
-                    <span
-                      className="w-6 h-6 rounded"
-                      style={{ background: label.color }}
-                    ></span>
-                    <span className="flex-1 text-sm font-medium">
-                      {label.name}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => openEdit(label)}
+                {filtered.map((label) =>
+                  !label._id ? null : (
+                    <div
+                      key={label._id}
+                      className="flex items-center gap-2 py-1 px-1 rounded hover:bg-accent/20 group"
                     >
-                      <Pencil size={16} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleDelete(label.id)}
-                      className="text-red-500"
-                    >
-                      ×
-                    </Button>
-                  </div>
-                ))}
+                      <Checkbox
+                        checked={selected.includes(label._id)}
+                        onCheckedChange={() => handleToggle(label._id!)}
+                      />
+                      <span
+                        className="w-6 h-6 rounded"
+                        style={{ background: label.color }}
+                      ></span>
+                      <span className="flex-1 text-sm font-medium">
+                        {label.name}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEdit(label)}
+                      >
+                        <Pencil size={16} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDelete(label._id)}
+                        className="text-red-500"
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  )
+                )}
                 {filtered.length === 0 && (
                   <div className="text-sm text-gray-400 px-2 py-4">
                     No labels found.

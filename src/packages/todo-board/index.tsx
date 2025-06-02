@@ -1,7 +1,7 @@
 "use client";
 
 import { DragDropContext, DropResult } from "@hello-pangea/dnd";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Todo, TodoStatus } from "@/types/todo";
 import TodoColumn from "@/components/TodoColumn";
 import { Input } from "@/components/ui/input";
@@ -9,30 +9,59 @@ import TicketFilterPopover from "@/components/TicketFilterPopover";
 import TodoHeader from "@/components/TodoHeader";
 import { TaskApi } from "@/api/TaskApi";
 import useSWR from "swr";
+import LabelFilterSelector from "@/components/LabelFilterSelector";
 
 const initialColumns: Record<TodoStatus, Todo[]> = {
-  TO_DO: [],
-  DOING: [],
-  DONE: [],
+  todo: [],
+  doing: [],
+  done: [],
 };
 
 export default function TodoBoard() {
   const [columns, setColumns] = useState(initialColumns);
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
-  const [createdAtRange, setCreatedAtRange] = useState<{
+
+  // State cho filter thực tế (áp dụng)
+  const [appliedCreatedAtRange, setAppliedCreatedAtRange] = useState<{
     from: string;
     to: string;
   }>({ from: "", to: "" });
+  const [appliedLabels, setAppliedLabels] = useState<string[]>([]);
 
-  const { data, isLoading } = useSWR("tasks", () => TaskApi.getTasks(), {
+  // State cho filter tạm thời (chỉ dùng trong popover)
+  const [tempCreatedAtRange, setTempCreatedAtRange] = useState<{
+    from: string;
+    to: string;
+  }>({ from: "", to: "" });
+  const [tempLabels, setTempLabels] = useState<string[]>([]);
+
+  const { data, mutate } = useSWR("tasks", () => TaskApi.getTasks(), {
     revalidateOnFocus: false,
     refreshInterval: 0,
   });
 
-  console.log(data, isLoading);
+  useEffect(() => {
+    if (data) {
+      const tasks = data as Todo[];
+      const newColumns = {
+        todo: tasks.filter((task) => task.status === "todo"),
+        doing: tasks.filter((task) => task.status === "doing"),
+        done: tasks.filter((task) => task.status === "done"),
+      };
+      setColumns(newColumns);
+    }
+  }, [data]);
 
-  const onDragEnd = (result: DropResult) => {
+  // Khi mở popover, sync filter tạm thời với filter thực tế
+  useEffect(() => {
+    if (filterOpen) {
+      setTempCreatedAtRange(appliedCreatedAtRange);
+      setTempLabels(appliedLabels);
+    }
+  }, [filterOpen]);
+
+  const onDragEnd = async (result: DropResult) => {
     if (!result.destination) return;
 
     const { source, destination } = result;
@@ -48,6 +77,7 @@ export default function TodoBoard() {
         [source.droppableId]: copiedItems,
       });
     } else {
+      const prevColumns = { ...columns };
       const sourceColumn = columns[source.droppableId as TodoStatus];
       const destColumn = columns[destination.droppableId as TodoStatus];
       const sourceItems = [...sourceColumn];
@@ -60,6 +90,17 @@ export default function TodoBoard() {
         [source.droppableId]: sourceItems,
         [destination.droppableId]: destItems,
       });
+      // Gọi API cập nhật status
+      try {
+        await TaskApi.updateTask(removed._id, {
+          status: destination.droppableId,
+        });
+        mutate();
+      } catch {
+        // Nếu lỗi, reset lại columns về trước khi kéo thả
+        setColumns(prevColumns);
+        mutate();
+      }
     }
   };
 
@@ -68,12 +109,29 @@ export default function TodoBoard() {
       const desc = (todo.description || "").toLowerCase();
       const matchSearch = search === "" || desc.includes(search.toLowerCase());
       const matchDate =
-        (!createdAtRange.from ||
-          new Date(todo.createdAt) >= new Date(createdAtRange.from)) &&
-        (!createdAtRange.to ||
-          new Date(todo.createdAt) <= new Date(createdAtRange.to));
-      return matchSearch && matchDate;
+        (!appliedCreatedAtRange.from ||
+          new Date(todo.createdAt) >= new Date(appliedCreatedAtRange.from)) &&
+        (!appliedCreatedAtRange.to ||
+          new Date(todo.createdAt) <= new Date(appliedCreatedAtRange.to));
+      const matchLabel =
+        appliedLabels.length === 0 ||
+        (todo.labels &&
+          todo.labels.some((l: any) =>
+            appliedLabels.includes(typeof l === "string" ? l : l._id)
+          ));
+      return matchSearch && matchDate && matchLabel;
     });
+  }
+
+  // Handler cho popover filter
+  function handleApplyFilter() {
+    setAppliedCreatedAtRange(tempCreatedAtRange);
+    setAppliedLabels(tempLabels);
+    setFilterOpen(false);
+  }
+  function handleResetFilter() {
+    setTempCreatedAtRange({ from: "", to: "" });
+    setTempLabels([]);
   }
 
   return (
@@ -91,8 +149,12 @@ export default function TodoBoard() {
           <TicketFilterPopover
             open={filterOpen}
             setOpen={setFilterOpen}
-            createdAtRange={createdAtRange}
-            setCreatedAtRange={setCreatedAtRange}
+            createdAtRange={tempCreatedAtRange}
+            setCreatedAtRange={setTempCreatedAtRange}
+            selectedLabels={tempLabels}
+            setSelectedLabels={setTempLabels}
+            onApply={handleApplyFilter}
+            onReset={handleResetFilter}
           />
         </div>
 
@@ -100,19 +162,22 @@ export default function TodoBoard() {
           <DragDropContext onDragEnd={onDragEnd}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-full min-h-0 flex-1 items-stretch">
               <TodoColumn
-                id="TO_DO"
+                id="todo"
                 title="To Do"
-                todos={filterTodos(columns.TO_DO)}
+                todos={filterTodos(columns.todo)}
+                mutate={mutate}
               />
               <TodoColumn
-                id="DOING"
+                id="doing"
                 title="Doing"
-                todos={filterTodos(columns.DOING)}
+                todos={filterTodos(columns.doing)}
+                mutate={mutate}
               />
               <TodoColumn
-                id="DONE"
+                id="done"
                 title="Done"
-                todos={filterTodos(columns.DONE)}
+                todos={filterTodos(columns.done)}
+                mutate={mutate}
               />
             </div>
           </DragDropContext>

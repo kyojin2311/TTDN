@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useState, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
@@ -27,47 +27,59 @@ import OrderedList from "@tiptap/extension-ordered-list";
 import ListItem from "@tiptap/extension-list-item";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useThemeContext } from "@/lib/context/ThemeContext";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
 import LabelSelector from "./LabelSelector";
+import { TaskApi } from "@/api/TaskApi";
+import { useForm, Controller } from "react-hook-form";
+import TiptapToolbar from "./TiptapToolbar";
+import useSWR from "swr";
+import dayjs from "dayjs";
 
 interface TodoSheetProps {
   status: string;
   children?: React.ReactNode;
   open?: boolean;
   setOpen?: (open: boolean) => void;
+  task?: any;
+  mutate: any;
 }
 
-const statusOptions = [
-  { value: "DOING", label: "Doing" },
-  { value: "DEMO", label: "Demo" },
-  { value: "WAITING_REVIEW", label: "Waiting Review" },
-  { value: "NEED_FIXED", label: "Need Fixed" },
-];
+// Map giá trị status sang label
+const statusLabels: Record<string, string> = {
+  todo: "Todo",
+  doing: "Doing",
+  done: "Done",
+};
 
 export default function TodoSheet({
   status,
   children,
   open: controlledOpen,
   setOpen: controlledSetOpen,
+  task,
+  mutate,
 }: TodoSheetProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen !== undefined ? controlledOpen : uncontrolledOpen;
   const setOpen =
     controlledSetOpen !== undefined ? controlledSetOpen : setUncontrolledOpen;
-  const [deadline, setDeadline] = useState("");
-  const [currentStatus, setCurrentStatus] = useState(status);
+  const {
+    control,
+    handleSubmit,
+    reset,
+    setValue,
+    formState: { errors },
+  } = useForm({
+    defaultValues: {
+      title: task?.title || "",
+      description: task?.description || "",
+      deadline: task?.deadline || "",
+      status: task?.status || status,
+      labels: (task?.labels || []).map((l) => l._id),
+    },
+  });
+
+  const isEdit = !!task;
   const { rem } = useThemeContext();
-
-  // Popover state for link editing
-  const [linkPopoverOpen, setLinkPopoverOpen] = useState(false);
-  const [linkUrl, setLinkUrl] = useState("");
-
-  const editorContentRef = useRef<HTMLDivElement>(null);
-  const linkButtonRef = useRef<HTMLButtonElement>(null);
 
   const editor = useEditor({
     extensions: [
@@ -96,8 +108,6 @@ export default function TodoSheet({
             return true;
           }
           if (event.key === "k") {
-            openLinkPopover();
-            event.preventDefault();
             return true;
           }
         }
@@ -106,77 +116,44 @@ export default function TodoSheet({
     },
   });
 
-  // Popover logic
-  const openLinkPopover = useCallback(() => {
-    if (!editor) return;
-    setLinkUrl(editor.getAttributes("link").href || "");
-    setLinkPopoverOpen(true);
-  }, [editor]);
-
-  const handleApplyLink = () => {
-    if (editor && linkUrl) {
-      editor
-        .chain()
-        .focus()
-        .extendMarkRange("link")
-        .setLink({ href: linkUrl })
-        .run();
+  // Đồng bộ state khi task thay đổi
+  useEffect(() => {
+    if (task) {
+      if (editor) {
+        editor.commands.setContent(task.description || "");
+      }
+    } else {
+      if (editor) {
+        editor.commands.setContent("");
+      }
     }
-    setLinkPopoverOpen(false);
-  };
-  const handleRemoveLink = () => {
-    if (editor) {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
-    }
-    setLinkPopoverOpen(false);
-  };
+  }, [task, editor]);
 
-  // Toolbar actions for Tiptap
-  const toolbarActions = [
-    {
-      icon: <b>B</b>,
-      action: () => editor?.chain().focus().toggleBold().run(),
-      isActive: editor?.isActive("bold"),
-      label: "Bold (Ctrl+B)",
-    },
-    {
-      icon: <i>I</i>,
-      action: () => editor?.chain().focus().toggleItalic().run(),
-      isActive: editor?.isActive("italic"),
-      label: "Italic (Ctrl+I)",
-    },
-    {
-      icon: <u>U</u>,
-      action: () => editor?.chain().focus().toggleUnderline().run(),
-      isActive: editor?.isActive("underline"),
-      label: "Underline (Ctrl+U)",
-    },
-    {
-      icon: <span style={{ fontWeight: 600 }}>A</span>,
-      action: () => editor?.chain().focus().unsetAllMarks().run(),
-      isActive: false,
-      label: "Clear Formatting",
-    },
-    {
-      icon: <span style={{ fontWeight: 600 }}>•</span>,
-      action: () => editor?.chain().focus().toggleBulletList().run(),
-      isActive: editor?.isActive("bulletList"),
-      label: "Bullet List",
-    },
-    {
-      icon: <span style={{ fontWeight: 600 }}>1.</span>,
-      action: () => editor?.chain().focus().toggleOrderedList().run(),
-      isActive: editor?.isActive("orderedList"),
-      label: "Ordered List",
-    },
-    {
-      icon: <span style={{ fontWeight: 600 }}>↔</span>,
-      action: openLinkPopover,
-      isActive: editor?.isActive("link"),
-      label: "Link (Ctrl+K)",
-      ref: linkButtonRef,
-    },
-  ];
+  useEffect(() => {
+    reset({
+      title: task?.title || "",
+      description: task?.description || "",
+      deadline: task?.deadline || "",
+      status: task?.status || status,
+      labels: (task?.labels || []).map((l) =>
+        typeof l === "string" ? l : l._id
+      ),
+    });
+  }, [task, status, reset]);
+
+  const onSubmit = async (data: any) => {
+    const submitData = {
+      ...data,
+      deadline: data.deadline ? dayjs(data.deadline).format("MM/DD/YYYY") : "",
+    };
+    if (isEdit) {
+      await TaskApi.updateTask(task._id, submitData);
+    } else {
+      await TaskApi.createTask(submitData);
+    }
+    if (mutate) mutate();
+    if (setOpen) setOpen(false);
+  };
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -194,144 +171,145 @@ export default function TodoSheet({
         className="!w-[650px] !max-w-none flex flex-col p-0"
       >
         <SheetHeader className="px-6 pt-6 pb-2 border-b">
-          <SheetTitle className="text-2xl">Add Ticket</SheetTitle>
+          <SheetTitle className="text-2xl">
+            {isEdit ? "Edit Task" : "Add Ticket"}
+          </SheetTitle>
         </SheetHeader>
-        <form className="flex-1 flex flex-col justify-between overflow-y-auto">
+        <form
+          onSubmit={handleSubmit(onSubmit)}
+          className="flex-1 flex flex-col justify-between overflow-y-auto"
+        >
           <div className="flex-1 px-6 py-4 space-y-5">
             <div style={{ marginBottom: `calc(${rem} * 1.5)` }}>
-              <Label
-                htmlFor="status"
-                style={{ marginBottom: `calc(${rem} * 0.5)` }}
-              >
-                Status
+              <Label htmlFor="title" style={{ marginBottom: "10px" }}>
+                Title
               </Label>
-              <Select value={currentStatus} onValueChange={setCurrentStatus}>
-                <SelectTrigger id="status" className="w-full">
-                  <SelectValue placeholder="Select status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {statusOptions.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Controller
+                name="title"
+                control={control}
+                rules={{ required: "Title is required" }}
+                render={({ field }) => <Input {...field} className="w-full" />}
+              />
+              {typeof errors.title?.message === "string" && (
+                <span className="text-red-500 text-xs">
+                  {errors.title.message}
+                </span>
+              )}
+            </div>
+
+            <div style={{ marginBottom: `calc(${rem} * 1.5)` }}>
+              <Label htmlFor="deadline" style={{ marginBottom: "10px" }}>
+                Deadline
+              </Label>
+              <Controller
+                name="deadline"
+                control={control}
+                rules={{ required: "Deadline is required" }}
+                render={({ field }) => {
+                  let value = field.value;
+                  if (value) {
+                    value = dayjs(value).format("YYYY-MM-DD");
+                  }
+                  return (
+                    <Input
+                      type="date"
+                      {...field}
+                      value={value}
+                      onChange={(e) => {
+                        field.onChange(e.target.value);
+                      }}
+                      className="w-full"
+                    />
+                  );
+                }}
+              />
+              {typeof errors.deadline?.message === "string" && (
+                <span className="text-red-500 text-xs">
+                  {errors.deadline.message}
+                </span>
+              )}
             </div>
             <div style={{ marginBottom: `calc(${rem} * 1.5)` }}>
-              <Label
-                htmlFor="deadline"
-                style={{ marginBottom: `calc(${rem} * 0.5)` }}
-              >
-                Deadline Final
+              <Label htmlFor="status" style={{ marginBottom: "10px" }}>
+                Status
               </Label>
-              <Input
-                id="deadline"
-                type="datetime-local"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-                className="w-full"
+              <Controller
+                name="status"
+                control={control}
+                rules={{ required: "Status is required" }}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="status" className="w-full">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(statusLabels).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              {typeof errors.status?.message === "string" && (
+                <span className="text-red-500 text-xs">
+                  {errors.status.message}
+                </span>
+              )}
+            </div>
+            <div style={{ marginBottom: `calc(${rem} * 1.5)` }}>
+              <Label style={{ marginBottom: "10px" }}>Labels</Label>
+              <Controller
+                name="labels"
+                control={control}
+                render={({ field }) => (
+                  <LabelSelector
+                    value={field.value}
+                    onChange={field.onChange}
+                  />
+                )}
               />
             </div>
             <div style={{ marginBottom: `calc(${rem} * 1.5)` }}>
-              <Label style={{ marginBottom: `calc(${rem} * 0.5)` }}>
-                Labels
-              </Label>
-              <LabelSelector />
-            </div>
-            <div style={{ marginBottom: `calc(${rem} * 1.5)` }}>
-              <Label style={{ marginBottom: `calc(${rem} * 0.5)` }}>
+              <Label htmlFor="description" style={{ marginBottom: "10px" }}>
                 Description
               </Label>
-              <div className="border rounded min-h-[320px] bg-white focus-within:ring-2 focus-within:ring-blue-500 relative">
-                {/* Toolbar */}
-                <div className="flex items-center gap-2 border-b px-4 py-2 bg-gray-50 rounded-t">
-                  {toolbarActions.map((item, idx) => (
-                    <Button
-                      key={idx}
-                      type="button"
-                      ref={
-                        item.label === "Link (Ctrl+K)"
-                          ? linkButtonRef
-                          : undefined
-                      }
-                      variant={item.isActive ? "secondary" : "ghost"}
-                      size="icon"
-                      className={`${
-                        item.isActive ? "text-primary" : "text-muted-foreground"
-                      } size-5`}
-                      onClick={item.action}
-                      title={item.label}
-                      tabIndex={-1}
-                    >
-                      {item.icon}
-                    </Button>
-                  ))}
-                  {/* Popover for link editing */}
-                  <Popover
-                    open={linkPopoverOpen}
-                    onOpenChange={setLinkPopoverOpen}
-                  >
-                    <PopoverTrigger asChild>
-                      <span ref={linkButtonRef} />
-                    </PopoverTrigger>
-                    <PopoverContent className="w-72 p-4" align="start">
-                      <Input
-                        type="text"
-                        placeholder="Paste or type a link"
-                        value={linkUrl}
-                        autoFocus
-                        onChange={(e) => setLinkUrl(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleApplyLink();
-                          if (e.key === "Escape") setLinkPopoverOpen(false);
-                        }}
-                        className="mb-2"
+              <Controller
+                name="description"
+                control={control}
+                rules={{ required: "Description is required" }}
+                render={({ field }) => (
+                  <div className="border rounded min-h-[160px] bg-white focus-within:ring-2 focus-within:ring-blue-500">
+                    <TiptapToolbar editor={editor} />
+                    <div className="p-4">
+                      <EditorContent
+                        editor={editor}
+                        className="tiptap"
+                        onBlur={() =>
+                          setValue("description", editor?.getHTML() || "")
+                        }
                       />
-                      <div className="flex gap-2 justify-end">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="link"
-                          onClick={handleApplyLink}
-                        >
-                          Apply
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="link"
-                          className="text-red-500 hover:text-red-600"
-                          onClick={handleRemoveLink}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div className="p-5 min-h-[240px]" ref={editorContentRef}>
-                  {editor && (
-                    <EditorContent editor={editor} className="tiptap" />
-                  )}
-                </div>
-              </div>
-              <div className="text-xs text-gray-500 mt-1">
-                <span className="mr-2">Ctrl+B: Bold</span>
-                <span className="mr-2">Ctrl+K: Link</span>
-                <span>Ctrl+I: Italic</span>
-              </div>
+                    </div>
+                  </div>
+                )}
+              />
+              {typeof errors.description?.message === "string" && (
+                <span className="text-red-500 text-xs">
+                  {errors.description.message}
+                </span>
+              )}
             </div>
           </div>
           <div className="px-6 py-4 border-t bg-white flex justify-end gap-2 sticky bottom-0 z-10">
             <Button
               type="button"
               variant="outline"
-              onClick={() => setOpen(false)}
+              onClick={() => setOpen && setOpen(false)}
             >
               Cancel
             </Button>
-            <Button type="submit">Save</Button>
+            <Button type="submit">{isEdit ? "Update" : "Save"}</Button>
           </div>
         </form>
       </SheetContent>

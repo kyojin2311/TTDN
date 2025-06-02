@@ -1,18 +1,28 @@
 "use client";
 
+import Loading from "@/components/Loading";
 import { useAuthContext } from "@/lib/context/AuthContext";
+import { LabelProvider } from "@/lib/context/LabelContext";
 import TodoBoard from "@/packages/todo-board";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 export default function Board() {
-  const { isAuthenticated } = useAuthContext();
+  const { isAuthenticated, loading } = useAuthContext();
   const router = useRouter();
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated && !loading) {
       router.push("/");
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, loading, router]);
 
-  return <TodoBoard />;
+  if (loading) {
+    return <Loading />;
+  }
+
+  return (
+    <LabelProvider>
+      <TodoBoard />
+    </LabelProvider>
+  );
 }

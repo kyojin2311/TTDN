@@ -6,12 +6,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CalendarDays, Filter } from "lucide-react";
+import LabelFilterSelector from "./LabelFilterSelector";
 
 interface TicketFilterPopoverProps {
   open: boolean;
   setOpen: (open: boolean) => void;
   createdAtRange: { from: string; to: string };
   setCreatedAtRange: (range: { from: string; to: string }) => void;
+  selectedLabels?: string[];
+  setSelectedLabels?: (labels: string[]) => void;
+  onApply?: () => void;
+  onReset?: () => void;
 }
 
 export default function TicketFilterPopover({
@@ -19,18 +24,27 @@ export default function TicketFilterPopover({
   setOpen,
   createdAtRange,
   setCreatedAtRange,
+  selectedLabels = [],
+  setSelectedLabels = () => {},
+  onApply,
+  onReset,
 }: TicketFilterPopoverProps) {
-  const isActive = !!createdAtRange.from || !!createdAtRange.to;
+  const isActive =
+    !!createdAtRange.from || !!createdAtRange.to || selectedLabels.length > 0;
   const filterCount =
-    [createdAtRange.from, createdAtRange.to].filter(Boolean).length > 0 ? 1 : 0;
+    [createdAtRange.from, createdAtRange.to].filter(Boolean).length +
+    (selectedLabels.length > 0 ? 1 : 0);
 
   function handleReset() {
     setCreatedAtRange({ from: "", to: "" });
+    setSelectedLabels([]);
+    if (onReset) onReset();
     setOpen(false);
   }
 
   function handleRemove() {
     setCreatedAtRange({ from: "", to: "" });
+    setSelectedLabels([]);
   }
 
   return (
@@ -93,12 +107,24 @@ export default function TicketFilterPopover({
               </Button>
             )}
           </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium w-28">Labels</span>
+            <div className="flex-1">
+              <LabelFilterSelector
+                value={selectedLabels}
+                onChange={setSelectedLabels}
+              />
+            </div>
+          </div>
           <div className="flex justify-end gap-2 mt-2">
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button
-              onClick={() => setOpen(false)}
+              onClick={() => {
+                if (onApply) onApply();
+                setOpen(false);
+              }}
               className="bg-blue-500 text-white hover:bg-blue-600"
             >
               Apply
